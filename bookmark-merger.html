@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Bookmark Merger · 书签合并器</title>
+<meta name="viewport" content="width=1280">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-0: #0a0a0c;
+  --bg-1: #131318;
+  --bg-2: #1a1a21;
+  --bg-3: #23232c;
+  --bg-hover: #2a2a35;
+  --border: #2a2a35;
+  --border-strong: #3a3a47;
+  --text-0: #ececf1;
+  --text-1: #a8a8b3;
+  --text-2: #6b6b78;
+  --text-3: #4a4a55;
+  --add:    #34d399;       /* 青绿 - onlyB */
+  --remove: #f87171;       /* 红 - onlyA */
+  --warn:   #fbbf24;       /* 黄 - diff */
+  --ok:     #a78bfa;       /* 紫 - 已决 */
+  --accent: #818cf8;       /* 蓝紫 - 主按钮 */
+  --accent-2: #c084fc;
+  --grid-line: rgba(255,255,255,0.03);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: 'Geist', 'PingFang SC', 'Hiragino Sans GB', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+.mono { font-family: 'JetBrains Mono', 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* === Background grain & ambient === */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(ellipse 800px 400px at 20% 0%, rgba(129,140,248,0.07), transparent 60%),
+    radial-gradient(ellipse 600px 600px at 90% 100%, rgba(192,132,252,0.05), transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  opacity: 0.025;
+  pointer-events: none;
+  z-index: 0;
+  mix-blend-mode: overlay;
+}
+
+#app { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+
+/* === Header === */
+.header {
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(20,20,26,0.9), rgba(15,15,20,0.7));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  position: sticky; top: 0; z-index: 50;
+}
+.header-inner {
+  padding: 18px 28px;
+  display: flex; align-items: center; gap: 24px;
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 700; font-size: 14px; letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.brand-mark {
+  width: 24px; height: 24px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-radius: 5px;
+  position: relative;
+  display: grid; place-items: center;
+  box-shadow: 0 0 24px rgba(129,140,248,0.4);
+}
+.brand-mark::after {
+  content: '⚑';
+  color: #0a0a0c;
+  font-size: 13px; font-weight: 900;
+}
+.brand-name { color: var(--text-0); }
+.brand-tag { color: var(--text-2); font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+.stats {
+  display: flex; gap: 18px; align-items: center;
+  padding: 6px 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.stat { display: flex; align-items: baseline; gap: 6px; }
+.stat-num { font-weight: 600; font-size: 14px; }
+.stat-num.same { color: var(--text-1); }
+.stat-num.onlyA { color: var(--remove); }
+.stat-num.onlyB { color: var(--add); }
+.stat-num.unresolved { color: var(--warn); }
+.stat-num.resolved { color: var(--ok); }
+.stat-lbl { color: var(--text-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-sep { color: var(--text-3); }
+
+.actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+/* === Buttons === */
+.btn {
+  appearance: none; border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-0);
+  font-family: inherit; font-size: 12px; font-weight: 500;
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+  color: #0a0a0c;
+  font-weight: 600;
+}
+.btn-primary:hover { filter: brightness(1.1); }
+.btn-ghost { background: transparent; }
+.btn-icon { padding: 6px 8px; }
+.btn-sm { padding: 4px 8px; font-size: 11px; }
+
+/* === Drop zone === */
+.dropzone-area {
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  background: var(--bg-1);
+}
+.dropzone {
+  border: 1.5px dashed var(--border-strong);
+  background: var(--bg-2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex; align-items: center; gap: 12px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  position: relative;
+}
+.dropzone:hover, .dropzone.drag {
+  border-color: var(--accent);
+  background: rgba(129,140,248,0.05);
+}
+.dropzone.loaded {
+  border-style: solid;
+  border-color: var(--ok);
+  background: rgba(167,139,250,0.04);
+}
+.dropzone input[type=file] { display: none; }
+.dz-icon {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  background: var(--bg-3);
+  display: grid; place-items: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.dropzone.loaded .dz-icon { background: rgba(167,139,250,0.15); }
+.dz-info { flex: 1; min-width: 0; }
+.dz-label { font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+.dz-name { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dz-name.empty { color: var(--text-2); font-weight: 400; }
+.dz-meta { font-size: 11px; color: var(--text-2); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+
+/* === Merge area === */
+.merge {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  background: var(--bg-0);
+  min-height: 0;
+}
+.col {
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-1);
+  min-height: 0;
+  min-width: 0;
+}
+.col:last-child { border-right: none; }
+.col-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  position: sticky; top: 0; z-index: 5;
+  flex-shrink: 0;
+  min-height: 56px;
+  gap: 8px;
+}
+.col-head-left {
+  display: flex; align-items: center; gap: 8px;
+  min-width: 0; flex-shrink: 1;
+  font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.col-head-title {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.col-head-right {
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+.col-head-m .col-head-right { gap: 6px; }
+.col-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.col-tag.A { background: rgba(248,113,113,0.15); color: var(--remove); }
+.col-tag.B { background: rgba(52,211,153,0.15); color: var(--add); }
+.col-tag.M { background: rgba(167,139,250,0.15); color: var(--ok); }
+.col-meta { font-size: 11px; color: var(--text-2); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+
+/* === Chips & search (内嵌到中间栏 col-head) === */
+.chips { display: flex; gap: 4px; }
+.chip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-1);
+  transition: all 0.1s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.chip:hover { background: var(--bg-hover); color: var(--text-0); }
+.chip.active { background: var(--accent); color: #0a0a0c; border-color: var(--accent); font-weight: 600; }
+.chip .num { font-family: 'JetBrains Mono', monospace; margin-left: 3px; opacity: 0.85; }
+.search {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  outline: none;
+  width: 130px;
+}
+.search:focus { border-color: var(--accent); }
+
+.col-body {
+  flex: 1; overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-3) transparent;
+  min-height: 0;
+}
+.col-body::-webkit-scrollbar { width: 10px; }
+.col-body::-webkit-scrollbar-track { background: transparent; }
+.col-body::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 5px; border: 2px solid var(--bg-1); }
+.col-body::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* === Folder headers === */
+.folder-head {
+  padding: 10px 16px 6px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--text-2);
+  position: sticky; top: 56px;
+  background: var(--bg-1);
+  z-index: 3;
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 6px;
+  min-height: 32px;
+}
+.folder-head::before {
+  content: '\u25B8'; color: var(--accent); font-size: 9px;
+}
+.folder-head .folder-count {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-3); font-weight: 500;
+}
+
+/* === Rows === */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--grid-line);
+  border-left: 3px solid transparent;
+  transition: background 0.1s ease;
+  min-height: 56px;
+  position: relative;
+}
+.row:hover { background: var(--bg-2); }
+.row-meta { display: flex; flex-direction: column; min-width: 0; gap: 1px; flex: 1; }
+.row-title {
+  font-size: 12px; color: var(--text-0);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.row-title.empty { color: var(--text-3); font-style: italic; font-weight: 400; }
+.row-url {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.3;
+}
+.row-side { display: flex; align-items: center; gap: 4px; flex-shrink: 0; min-width: 0; }
+
+.act-btn {
+  appearance: none;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  font-family: inherit; font-size: 10.5px; font-weight: 500;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  white-space: nowrap;
+}
+.act-btn:hover { background: var(--bg-hover); color: var(--text-0); }
+.act-btn.active { background: var(--accent); color: #0a0a0c; border-color: var(--accent); font-weight: 600; }
+.act-btn.skip.active { background: var(--text-3); color: var(--text-0); border-color: var(--text-3); }
+.act-btn.keep.active { background: var(--ok); color: #0a0a0c; border-color: var(--ok); }
+.act-btn.useA.active { background: var(--remove); color: #0a0a0c; border-color: var(--remove); }
+.act-btn.useB.active { background: var(--add); color: #0a0a0c; border-color: var(--add); }
+
+.x2-badge {
+  display: inline-block;
+  background: var(--ok);
+  color: #0a0a0c;
+  font-size: 9.5px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+  margin-left: 2px;
+  box-shadow: 0 0 6px rgba(167,139,250,0.4);
+}
+
+.toast {
+  position: fixed; bottom: 80px; right: 28px;
+  background: var(--bg-3);
+  border: 1px solid var(--ok);
+  color: var(--text-0);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  animation: toastIn 0.2s ease;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.legend {
+  display: flex; gap: 12px; font-size: 10.5px; color: var(--text-2);
+  font-family: 'JetBrains Mono', monospace;
+}
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+@media (max-width: 1024px) {
+  .merge { grid-template-columns: 1fr 1fr 1fr; }
+  .row-url { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="header">
+    <div class="header-inner">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <div>
+          <div class="brand-name">Bookmark Merger <span class="brand-tag">· 书签合并器</span></div>
+        </div>
+      </div>
+      <div class="stats" id="stats">
+        <div class="stat"><span class="stat-num same" id="s-same">0</span><span class="stat-lbl">共有</span></div>
+        <span class="stat-sep">·</span>
+        <div class="stat"><span class="stat-num onlyA" id="s-onlyA">0</span><span class="stat-lbl">仅 A</span></div>
+        <span class="stat-sep">·</span>
+        <div class="stat"><span class="stat-num onlyB" id="s-onlyB">0</span><span class="stat-lbl">仅 B</span></div>
+        <span class="stat-sep">·</span>
+        <div class="stat"><span class="stat-num resolved" id="s-resolved">0</span><span class="stat-lbl">已决</span></div>
+        <span class="stat-sep">·</span>
+        <div class="stat"><span class="stat-num unresolved" id="s-unresolved">0</span><span class="stat-lbl">未决</span></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-sm" id="btn-allA" title="仅 A 决策为 useA，仅 B 决策为 skip">⟵ 全选 A</button>
+        <button class="btn btn-sm" id="btn-allB" title="仅 B 决策为 useB，仅 A 决策为 skip">全选 B ⟶</button>
+        <button class="btn btn-sm" id="btn-keep" title="所有未决都保留">⊕ 全部保留</button>
+        <button class="btn btn-sm" id="btn-auto" title="自动解决：相同 useA，差异 keepBoth">⚙ 自动</button>
+        <button class="btn btn-sm" id="btn-reset">↺ 重置</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="dropzone-area">
+    <label class="dropzone" id="dz-A" for="fileA">
+      <input type="file" id="fileA" accept=".html,text/html">
+      <div class="dz-icon">📂</div>
+      <div class="dz-info">
+        <div class="dz-label">A · 旧版本</div>
+        <div class="dz-name empty" id="dzA-name">点击或拖入 书签文件</div>
+        <div class="dz-meta" id="dzA-meta">—</div>
+      </div>
+    </label>
+    <label class="dropzone" id="dz-B" for="fileB">
+      <input type="file" id="fileB" accept=".html,text/html">
+      <div class="dz-icon">📂</div>
+      <div class="dz-info">
+        <div class="dz-label">B · 新版本</div>
+        <div class="dz-name empty" id="dzB-name">点击或拖入 书签文件</div>
+        <div class="dz-meta" id="dzB-meta">—</div>
+      </div>
+    </label>
+  </section>
+
+  <main class="merge" id="merge">
+    <div class="col">
+      <div class="col-head">
+        <div class="col-head-left">
+          <span class="col-tag A">A</span>
+          <span class="col-head-title" id="colA-name">未加载</span>
+        </div>
+        <div class="col-head-right">
+          <span class="col-meta" id="colA-meta">—</span>
+        </div>
+      </div>
+      <div class="col-body" id="colA"></div>
+    </div>
+    <div class="col">
+      <div class="col-head col-head-m">
+        <div class="col-head-left">
+          <span class="col-tag M">M</span>
+          <span class="col-head-title">合并预览</span>
+        </div>
+        <div class="col-head-right">
+          <div class="chips" id="filterbar">
+            <div class="chip active" data-filter="all">全部 <span class="num" id="f-all">0</span></div>
+            <div class="chip" data-filter="unresolved">未决 <span class="num" id="f-un">0</span></div>
+            <div class="chip" data-filter="resolved">已决 <span class="num" id="f-res">0</span></div>
+          </div>
+          <input class="search" id="search" placeholder="🔍 搜索">
+          <span class="col-meta" id="colM-meta">—</span>
+        </div>
+      </div>
+      <div class="col-body" id="colM"></div>
+    </div>
+    <div class="col">
+      <div class="col-head">
+        <div class="col-head-left">
+          <span class="col-tag B">B</span>
+          <span class="col-head-title" id="colB-name">未加载</span>
+        </div>
+        <div class="col-head-right">
+          <span class="col-meta" id="colB-meta">—</span>
+        </div>
+      </div>
+      <div class="col-body" id="colB"></div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--remove)"></span>仅 A</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--add)"></span>仅 B</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--warn)"></span>差异</div>
+      <div class="legend-item"><span class="legend-swatch" style="background:var(--ok)"></span>已决</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="footer-hint" id="footer-hint">加载两份书签后开始合并</div>
+    <button class="btn" id="btn-copy" disabled>📋 复制 HTML</button>
+    <button class="btn btn-primary" id="btn-export" disabled>⬇ 导出 bookmarks_merged.html</button>
+  </footer>
+</div>
+
+<script>
+// =============================================================
+// parser.js — 解析 Netscape Bookmark 格式
+// =============================================================
+const TOP_FOLDER = '书签栏';
+
+function normUrl(u) {
+  if (!u) return '';
+  try {
+    const p = new URL(u);
+    let host = p.hostname.toLowerCase();
+    if (host.startsWith('www.')) host = host.slice(4);
+    let path = p.pathname || '';
+    if (path === '/' || path === '') path = '';
+    else path = path.replace(/\/+$/, '');
+    return (p.protocol + '//' + host + path + (p.search || '') + (p.hash || '')).toLowerCase();
+  } catch (e) {
+    return (u || '').trim().toLowerCase();
+  }
+}
+
+function parseBookmarksHtml(html) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const allA = doc.querySelectorAll('a[href]');
+  if (allA.length === 0) {
+    throw new Error('未找到任何书签链接，确认是 Netscape Bookmark 格式？');
+  }
+
+  const items = [];
+  const folders = new Set();
+  const seen = new Set();
+  const ALIASES = new Set(['个人收藏', 'Bookmarks bar', 'Bookmarks Bar', 'Bookmarks', '书签菜单']);
+
+  // 稳健算法：直接从 A 节点的 ancestor 链推断 folder。
+  // 不依赖 <DT> 内部嵌套结构（HTML5 解析器有时会调整 DL/DT 关系）。
+  function folderOf(aNode) {
+    const names = [];
+    let cur = aNode.parentElement;
+    while (cur && cur !== doc.documentElement) {
+      if (cur.tagName === 'DT') {
+        const h3 = cur.querySelector(':scope > h3');
+        if (h3) {
+          let name = (h3.textContent || '').trim();
+          if (names.length === 0) name = TOP_FOLDER;
+          else if (ALIASES.has(name)) name = TOP_FOLDER;
+          names.unshift(name);
+        }
+      }
+      cur = cur.parentElement;
+    }
+    return names.length === 0 ? TOP_FOLDER : names.join('/');
+  }
+
+  for (const a of allA) {
+    const href = a.getAttribute('href') || '';
+    if (!href) continue;
+    const folder = folderOf(a);
+    const title = (a.textContent || '').trim() || href;
+    const key = folder + '|' + href;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    folders.add(folder);
+    items.push({
+      folder, title, url: href,
+      addDate: a.getAttribute('add_date') || '',
+    });
+  }
+  console.log('[parser] items=' + items.length + ' folders=' + folders.size + ' aTagsSeen=' + allA.length);
+  return { items, folders };
+}
+
+// =============================================================
+// diff.js — 归一匹配 + 产出 diff 行
+// =============================================================
+function diff(aParsed, bParsed) {
+  const rows = new Map();
+
+  // 用 normUrl 作为 key；A 第一次 set，B 第二次遍历时如果 key 已存在就只填 b
+  for (const item of aParsed.items) {
+    const key = normUrl(item.url);
+    if (rows.has(key)) rows.get(key).a = item;
+    else rows.set(key, { a: item, b: null, normUrl: key });
+  }
+  for (const item of bParsed.items) {
+    const key = normUrl(item.url);
+    if (rows.has(key)) rows.get(key).b = item;   // 关键：A 已有此 key → 只填 b，不新建 row
+    else rows.set(key, { a: null, b: item, normUrl: key });
+  }
+
+  // 此时 rows 里的每个 entry 已经正确配对了 a/b
+  const merged = [];
+  for (const r of rows.values()) {
+    if (r.a && r.b) {
+      const same = r.a.folder === r.b.folder && r.a.title === r.b.title;
+      merged.push({
+        key: r.normUrl,
+        a: r.a, b: r.b,
+        normUrl: r.normUrl,
+        kind: same ? 'same' : 'diff',
+        decision: same ? 'useA' : 'undecided',
+      });
+    } else if (r.a) {
+      merged.push({
+        key: r.normUrl,
+        a: r.a, b: null,
+        normUrl: r.normUrl,
+        kind: 'onlyA',
+        decision: 'undecided',
+      });
+    } else if (r.b) {
+      merged.push({
+        key: r.normUrl,
+        a: null, b: r.b,
+        normUrl: r.normUrl,
+        kind: 'onlyB',
+        decision: 'undecided',
+      });
+    }
+  }
+
+  // 排序：onlyA / onlyB / diff 在前，same 在后；同类内按 folder + title
+  const kindOrder = { onlyA: 0, onlyB: 1, diff: 2, same: 3 };
+  merged.sort((x, y) => {
+    const k = kindOrder[x.kind] - kindOrder[y.kind];
+    if (k !== 0) return k;
+    const fx = (x.a?.folder || x.b?.folder || '');
+    const fy = (y.a?.folder || y.b?.folder || '');
+    if (fx !== fy) return fx.localeCompare(fy, 'zh');
+    const tx = (x.a?.title || x.b?.title || '');
+    const ty = (y.a?.title || y.b?.title || '');
+    return tx.localeCompare(ty, 'zh');
+  });
+
+  return merged;
+}
+
+// =============================================================
+// State + Render
+// =============================================================
+const state = {
+  fileA: null,   // { name, parsed }
+  fileB: null,
+  rows: [],
+  filter: 'all', // all | unresolved | resolved
+  search: '',
+};
+
+function updateStats() {
+  const same = state.rows.filter(r => r.kind === 'same').length;
+  const onlyA = state.rows.filter(r => r.kind === 'onlyA').length;
+  const onlyB = state.rows.filter(r => r.kind === 'onlyB').length;
+  const diff = state.rows.filter(r => r.kind === 'diff').length;
+  const resolved = state.rows.filter(r => r.decision !== 'undecided').length;
+  const unresolved = state.rows.length - resolved;
+  document.getElementById('s-same').textContent = same;
+  document.getElementById('s-onlyA').textContent = onlyA;
+  document.getElementById('s-onlyB').textContent = onlyB;
+  document.getElementById('s-resolved').textContent = resolved;
+  document.getElementById('s-unresolved').textContent = unresolved;
+  document.getElementById('f-all').textContent = state.rows.length;
+  document.getElementById('f-un').textContent = unresolved + diff; // 所有需要决策的
+  document.getElementById('f-res').textContent = resolved;
+}
+
+function getRowByKey(key) {
+  return state.rows.find(r => r.key === key);
+}
+
+function setDecision(key, decision) {
+  const r = getRowByKey(key);
+  if (!r) return;
+  r.decision = decision;
+  renderRow(r);
+  updateStats();
+  updateFooter();
+}
+
+function updateFooter() {
+  const unresolved = state.rows.filter(r => r.decision === 'undecided').length;
+  const btnExp = document.getElementById('btn-export');
+  const btnCp = document.getElementById('btn-copy');
+  const hint = document.getElementById('footer-hint');
+  const hasData = state.rows.length > 0;
+  btnExp.disabled = !hasData;
+  btnCp.disabled = !hasData;
+  if (!hasData) {
+    hint.textContent = '加载两份书签后开始合并';
+  } else if (unresolved > 0) {
+    hint.textContent = `还有 ${unresolved} 条未决 · 用顶部快捷按钮批量处理`;
+  } else {
+    hint.textContent = '✓ 全部已决 · 可以导出';
+  }
+}
+
+function makeActionsHTML(key, current) {
+  return `<button class="act-btn useA ${current==='useA'?'active':''}" data-act="useA" data-key="${key}" title="使用 A 版本">用 A</button>
+    <button class="act-btn useB ${current==='useB'?'active':''}" data-act="useB" data-key="${key}" title="使用 B 版本">用 B</button>
+    <button class="act-btn keep ${current==='keepBoth'?'active':''}" data-act="keepBoth" data-key="${key}" title="两边都保留">⊕</button>
+    <button class="act-btn skip ${current==='skip'?'active':''}" data-act="skip" data-key="${key}" title="跳过">⊘</button>`;
+}
+
+function displayTitle(item) {
+  if (!item) return '';
+  if (item.title && item.title.trim()) return item.title.trim();
+  // 源 A 标签经常无 title → 从 URL 提取 host（去 www.、小写）作为可读名
+  try {
+    const u = new URL(item.url);
+    let host = u.hostname.toLowerCase();
+    if (host.startsWith('www.')) host = host.slice(4);
+    return host || '(无标题)';
+  } catch (e) {
+    return item.url || '(无标题)';
+  }
+}
+
+function makeItemHTML(item, side) {
+  if (!item) return `<div class="row-meta"><div class="row-title empty">— 无 —</div></div>`;
+  const isInferred = !item.title || !item.title.trim();
+  const titleText = displayTitle(item);
+  return `<div class="row-meta">
+    <div class="row-title ${isInferred ? 'empty' : ''}">${escapeHtml(titleText)}</div>
+    <div class="row-url">${escapeHtml(item.url)}</div>
+  </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function rowClasses(r) {
+  const cls = ['row', r.kind];
+  if (r.decision !== 'undecided') cls.push('resolved');
+  return cls.join(' ');
+}
+
+function renderRow(r) {
+  const key = r.key;
+  // A
+  const aEl = document.querySelector(`#colA .row[data-key="${CSS.escape(key)}"]`);
+  if (aEl) {
+    aEl.className = rowClasses(r);
+    aEl.innerHTML = makeItemHTML(r.a, 'A');
+  }
+  const bEl = document.querySelector(`#colB .row[data-key="${CSS.escape(key)}"]`);
+  if (bEl) {
+    bEl.className = rowClasses(r);
+    bEl.innerHTML = makeItemHTML(r.b, 'B');
+  }
+  const mEl = document.querySelector(`#colM .m-row[data-key="${CSS.escape(key)}"]`);
+  if (mEl) {
+    mEl.className = 'm-row ' + rowClasses(r);
+    mEl.innerHTML = makePreviewInner(r);
+  }
+}
+
+function makePreviewInner(r) {
+  let metaHTML;
+  if (r.kind === 'same' || r.decision === 'useA') {
+    metaHTML = makeItemHTML(r.a, 'A');
+  } else if (r.decision === 'useB') {
+    metaHTML = makeItemHTML(r.b, 'B');
+  } else if (r.decision === 'keepBoth') {
+    // 同一 row 内并列显示 A + B，但保持单行 56px 高度
+    metaHTML = `<div class="row-meta" style="flex:1.4">
+      <div class="row-title">${escapeHtml(displayTitle(r.a))} <span style="color:var(--text-3);font-size:10px">+</span> ${escapeHtml(displayTitle(r.b))}</div>
+      <div class="row-url">A: ${escapeHtml(r.a.url)} · B: ${escapeHtml(r.b.url)}</div>
+    </div>`;
+  } else if (r.decision === 'skip') {
+    metaHTML = `<div class="row-meta"><div class="row-title empty">— 已跳过 —</div></div>`;
+  } else {
+    // undecided
+    metaHTML = `<div class="row-meta"><div class="row-title empty">— 待决 —</div>
+      <div class="row-url">${r.kind==='onlyA'?'仅 A 存在':r.kind==='onlyB'?'仅 B 存在':'两边都有但有差异'}</div>
+    </div>`;
+  }
+  // x2 角标：keepBoth 时显示
+  const x2 = r.decision === 'keepBoth' ? '<span class="x2-badge" title="保留 2 份">×2</span>' : '';
+  return metaHTML + `<div class="row-side">${makeActionsHTML(r.key, r.decision)}${x2}</div>`;
+}
+
+function matchesFilter(r) {
+  if (state.filter === 'unresolved') {
+    return r.decision === 'undecided';
+  }
+  if (state.filter === 'resolved') {
+    return r.decision !== 'undecided';
+  }
+  return true;
+}
+function matchesSearch(r) {
+  if (!state.search) return true;
+  const q = state.search.toLowerCase();
+  const hay = [
+    r.a?.title, r.a?.url, r.a?.folder,
+    r.b?.title, r.b?.url, r.b?.folder,
+    r.normUrl,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(q);
+}
+
+function renderAll() {
+  const colA = document.getElementById('colA');
+  const colB = document.getElementById('colB');
+  const colM = document.getElementById('colM');
+  colA.innerHTML = ''; colB.innerHTML = ''; colM.innerHTML = '';
+
+  if (state.rows.length === 0) {
+    const empty = `<div class="empty-state"><div class="es-icon">📭</div>暂无数据 — 加载两份书签文件后开始合并</div>`;
+    colA.innerHTML = empty; colB.innerHTML = empty;
+    colM.innerHTML = empty;
+    return;
+  }
+
+  // 按 folder 分组（保持出现顺序）
+  const groups = new Map();
+  for (const r of state.rows) {
+    if (!matchesFilter(r) || !matchesSearch(r)) continue;
+    const f = r.a?.folder || r.b?.folder || TOP_FOLDER;
+    if (!groups.has(f)) groups.set(f, []);
+    groups.get(f).push(r);
+  }
+
+  for (const [folder, list] of groups) {
+    const fA = document.createElement('div');
+    fA.className = 'folder-head';
+    fA.innerHTML = `📁 ${escapeHtml(folder)} <span class="folder-count">${list.length}</span>`;
+    const fB = fA.cloneNode(true);
+    const fM = fA.cloneNode(true);
+    colA.appendChild(fA);
+    colB.appendChild(fB);
+    colM.appendChild(fM);
+
+    for (const r of list) {
+      // A — 仅显示 A 端内容（row-meta），无按钮
+      const aRow = document.createElement('div');
+      aRow.className = rowClasses(r);
+      aRow.setAttribute('data-key', r.key);
+      aRow.innerHTML = makeItemHTML(r.a, 'A');
+      colA.appendChild(aRow);
+
+      // B — 仅显示 B 端内容（row-meta），无按钮
+      const bRow = document.createElement('div');
+      bRow.className = rowClasses(r);
+      bRow.setAttribute('data-key', r.key);
+      bRow.innerHTML = makeItemHTML(r.b, 'B');
+      colB.appendChild(bRow);
+
+      // M — 显示合并预览（row-meta + row-side 按钮 + 可选 x2 角标）
+      const mRow = document.createElement('div');
+      mRow.className = 'm-row ' + rowClasses(r);
+      mRow.setAttribute('data-key', r.key);
+      mRow.innerHTML = makePreviewInner(r);
+      colM.appendChild(mRow);
+    }
+  }
+
+  // column meta
+  const aCount = state.rows.filter(r => r.a).length;
+  const bCount = state.rows.filter(r => r.b).length;
+  document.getElementById('colA-meta').textContent = `${aCount} 项`;
+  document.getElementById('colB-meta').textContent = `${bCount} 项`;
+  const mergedCount = computeMergeCount();
+  document.getElementById('colM-meta').textContent = `→ ${mergedCount} 项`;
+
+  // attach event delegation
+  attachActionHandlers();
+}
+
+function computeMergeCount() {
+  let n = 0;
+  for (const r of state.rows) {
+    if (r.decision === 'skip') continue;
+    if (r.decision === 'keepBoth') n += 2;
+    else if (r.decision === 'useA') n += r.a ? 1 : 0;
+    else if (r.decision === 'useB') n += r.b ? 1 : 0;
+    else if (r.decision === 'undecided') n += 0;
+    else if (r.kind === 'same') n += 1; // 默认
+  }
+  return n;
+}
+
+function attachActionHandlers() {
+  const handler = (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    e.preventDefault();
+    const key = btn.getAttribute('data-key');
+    const act = btn.getAttribute('data-act');
+    setDecision(key, act);
+  };
+  ['colA','colB','colM'].forEach(id => {
+    const el = document.getElementById(id);
+    el.onclick = handler;
+  });
+}
+
+// =============================================================
+// 批量动作
+// =============================================================
+function batchAllA() {
+  for (const r of state.rows) {
+    if (r.decision !== 'undecided') continue;
+    if (r.kind === 'onlyA') r.decision = 'useA';
+    else if (r.kind === 'onlyB') r.decision = 'skip';
+    else if (r.kind === 'diff') r.decision = 'useA';
+  }
+  renderAll(); updateStats(); updateFooter();
+}
+function batchAllB() {
+  for (const r of state.rows) {
+    if (r.decision !== 'undecided') continue;
+    if (r.kind === 'onlyA') r.decision = 'skip';
+    else if (r.kind === 'onlyB') r.decision = 'useB';
+    else if (r.kind === 'diff') r.decision = 'useB';
+  }
+  renderAll(); updateStats(); updateFooter();
+}
+function batchKeep() {
+  for (const r of state.rows) {
+    if (r.decision !== 'undecided') continue;
+    r.decision = 'keepBoth';
+  }
+  renderAll(); updateStats(); updateFooter();
+}
+function batchReset() {
+  for (const r of state.rows) {
+    if (r.kind === 'same') { r.decision = 'useA'; continue; }
+    r.decision = 'undecided';
+  }
+  renderAll(); updateStats(); updateFooter();
+}
+function batchAuto() {
+  for (const r of state.rows) {
+    if (r.kind === 'same') r.decision = 'useA';
+    else if (r.decision === 'undecided') r.decision = 'keepBoth';
+  }
+  renderAll(); updateStats(); updateFooter();
+}
+
+// =============================================================
+// export.js — 重建 Netscape Bookmark HTML 并下载
+// =============================================================
+function buildExportHtml() {
+  // 收集所有要写入的 item
+  const items = [];
+  for (const r of state.rows) {
+    if (r.decision === 'skip') continue;
+    if (r.decision === 'useA' && r.a) {
+      items.push({ folder: r.a.folder, title: r.a.title, url: r.a.url, addDate: r.a.addDate });
+    } else if (r.decision === 'useB' && r.b) {
+      items.push({ folder: r.b.folder, title: r.b.title, url: r.b.url, addDate: r.b.addDate });
+    } else if (r.decision === 'keepBoth') {
+      if (r.a) items.push({ folder: r.a.folder, title: r.a.title, url: r.a.url, addDate: r.a.addDate });
+      if (r.b) items.push({ folder: r.b.folder, title: r.b.title, url: r.b.url, addDate: r.b.addDate });
+    } else if (r.decision === 'undecided') {
+      // 未决 → 默认 useA 或 useB（看哪边有）
+      if (r.a) items.push({ folder: r.a.folder, title: r.a.title, url: r.a.url, addDate: r.a.addDate });
+      else if (r.b) items.push({ folder: r.b.folder, title: r.b.title, url: r.b.url, addDate: r.b.addDate });
+    } else if (r.kind === 'same') {
+      items.push({ folder: r.a.folder, title: r.a.title, url: r.a.url, addDate: r.a.addDate });
+    }
+  }
+
+  // 构造文件夹树
+  // 路径用 / 分隔
+  const folderMap = new Map(); // path -> [items]
+  for (const it of items) {
+    const p = it.folder || TOP_FOLDER;
+    if (!folderMap.has(p)) folderMap.set(p, []);
+    folderMap.get(p).push(it);
+  }
+
+  // 计算所有父路径
+  const allFolders = new Set();
+  for (const p of folderMap.keys()) {
+    const parts = p.split('/');
+    for (let i = 1; i <= parts.length; i++) {
+      allFolders.add(parts.slice(0, i).join('/'));
+    }
+  }
+
+  // 把根级条目放进 TOP_FOLDER
+  const topItems = folderMap.get(TOP_FOLDER) || [];
+  const subFolders = new Set();
+  for (const p of allFolders) {
+    const parts = p.split('/');
+    if (parts.length === 1) continue; // 根
+    subFolders.add(parts[1]); // 二级以下都列
+  }
+
+  // 按字母序输出文件夹
+  const sortedFolders = [...allFolders].sort((x, y) => x.localeCompare(y, 'zh'));
+  // 嵌套结构：根据路径生成 HTML
+  // 我们用递归：传入当前路径，输出该层 DL 内容
+  const buf = [];
+  buf.push(`<!DOCTYPE NETSCAPE-Bookmark-file-1>`);
+  buf.push(`<!-- This is an automatically generated file by Bookmark Merger. -->`);
+  buf.push(`<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">`);
+  buf.push(`<TITLE>Bookmarks</TITLE>`);
+  buf.push(`<H1>Bookmarks</H1>`);
+  buf.push(`<DL><p>`);
+
+  // 顶层 = TOP_FOLDER
+  buf.push(`    <DT><H3>${escapeHtml(TOP_FOLDER)}</H3>`);
+  buf.push(`    <DL><p>`);
+  // 顶层条目（folder === TOP_FOLDER）
+  for (const it of topItems) {
+    buf.push(formatItem(it, 8));
+  }
+  // 顶层下的子文件夹
+  const childFolders = [...subFolders].sort((x, y) => x.localeCompare(y, 'zh'));
+  for (const f of childFolders) {
+    writeFolder(f, TOP_FOLDER, 1, buf, folderMap);
+  }
+  buf.push(`    </DL><p>`);
+  buf.push(`</DL><p>`);
+
+  return buf.join('\n');
+}
+
+function writeFolder(folderName, parentPath, depth, buf, folderMap) {
+  const fullPath = parentPath + '/' + folderName;
+  const indent = '    '.repeat(depth + 1);
+  buf.push(`${indent}<DT><H3>${escapeHtml(folderName)}</H3>`);
+  buf.push(`${indent}<DL><p>`);
+  // 自己的条目
+  const items = folderMap.get(fullPath) || [];
+  for (const it of items) {
+    buf.push(formatItem(it, (depth + 2) * 4));
+  }
+  // 子文件夹
+  const subNames = new Set();
+  for (const p of folderMap.keys()) {
+    if (p === fullPath) continue;
+    if (p.startsWith(fullPath + '/')) {
+      const rest = p.slice(fullPath.length + 1);
+      subNames.add(rest.split('/')[0]);
+    }
+  }
+  for (const sub of [...subNames].sort((a, b) => a.localeCompare(b, 'zh'))) {
+    writeFolder(sub, fullPath, depth + 1, buf, folderMap);
+  }
+  buf.push(`${indent}</DL><p>`);
+}
+
+function formatItem(it, indent) {
+  const ind = ' '.repeat(indent);
+  const attrs = [];
+  if (it.addDate) attrs.push(`ADD_DATE="${escapeAttr(it.addDate)}"`);
+  return `${ind}<DT><A HREF="${escapeAttr(it.url)}"${attrs.length ? ' ' + attrs.join(' ') : ''}>${escapeHtml(it.title || it.url)}</A>`;
+}
+
+function escapeAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+function downloadExport() {
+  if (state.rows.length === 0) return;
+  const html = buildExportHtml();
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const d = new Date();
+  const ymd = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+  a.href = url;
+  a.download = `bookmarks_merged_${ymd}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast(`已导出 ${a.download} (${(html.length/1024).toFixed(1)} KB)`);
+}
+
+async function copyExport() {
+  if (state.rows.length === 0) return;
+  const html = buildExportHtml();
+  try {
+    await navigator.clipboard.writeText(html);
+    showToast(`已复制 ${html.length} 字符到剪贴板`);
+  } catch (e) {
+    // fallback
+    const ta = document.createElement('textarea');
+    ta.value = html;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast('已复制（fallback）'); }
+    catch { showToast('复制失败：' + e.message); }
+    document.body.removeChild(ta);
+  }
+}
+
+function showToast(msg) {
+  const old = document.querySelector('.toast');
+  if (old) old.remove();
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2400);
+}
+
+// =============================================================
+// 文件加载
+// =============================================================
+function loadFile(side, file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = parseBookmarksHtml(e.target.result);
+      console.log(`[${side}] parsed ${parsed.items.length} items, ${parsed.folders.size} folders`, parsed);
+      if (side === 'A') {
+        state.fileA = { name: file.name, parsed };
+        updateDz('A', file.name, parsed.items.length, parsed.folders.size);
+        document.getElementById('colA-name').textContent = file.name;
+        document.getElementById('colA-name').title = file.name;
+      } else {
+        state.fileB = { name: file.name, parsed };
+        updateDz('B', file.name, parsed.items.length, parsed.folders.size);
+        document.getElementById('colB-name').textContent = file.name;
+        document.getElementById('colB-name').title = file.name;
+      }
+      tryDiff();
+    } catch (err) {
+      showToast('解析失败: ' + err.message);
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+function updateDz(side, name, items, folders) {
+  const dz = document.getElementById('dz-' + side);
+  const nm = document.getElementById('dz' + side + '-name');
+  const mt = document.getElementById('dz' + side + '-meta');
+  dz.classList.add('loaded');
+  nm.classList.remove('empty');
+  nm.textContent = name;
+  mt.textContent = `${items} 书签 · ${folders} 文件夹`;
+}
+
+function tryDiff() {
+  if (state.fileA && state.fileB) {
+    state.rows = diff(state.fileA.parsed, state.fileB.parsed);
+    renderAll();
+    updateStats();
+    updateFooter();
+  }
+}
+
+// =============================================================
+// 事件绑定
+// =============================================================
+document.getElementById('fileA').addEventListener('change', e => loadFile('A', e.target.files[0]));
+document.getElementById('fileB').addEventListener('change', e => loadFile('B', e.target.files[0]));
+
+// 拖拽
+['dz-A', 'dz-B'].forEach(id => {
+  const dz = document.getElementById(id);
+  ['dragenter','dragover'].forEach(ev => {
+    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(ev => {
+    dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); });
+  });
+  dz.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (!f) return;
+    const side = id === 'dz-A' ? 'A' : 'B';
+    loadFile(side, f);
+  });
+});
+
+document.getElementById('btn-allA').addEventListener('click', batchAllA);
+document.getElementById('btn-allB').addEventListener('click', batchAllB);
+document.getElementById('btn-keep').addEventListener('click', batchKeep);
+document.getElementById('btn-reset').addEventListener('click', batchReset);
+document.getElementById('btn-auto').addEventListener('click', batchAuto);
+document.getElementById('btn-export').addEventListener('click', downloadExport);
+document.getElementById('btn-copy').addEventListener('click', copyExport);
+
+document.getElementById('filterbar').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  state.filter = chip.getAttribute('data-filter');
+  renderAll();
+});
+document.getElementById('search').addEventListener('input', e => {
+  state.search = e.target.value;
+  renderAll();
+});
+
+// 初始空态
+renderAll();
+updateStats();
+updateFooter();
+</script>
+</body>
+</html>
