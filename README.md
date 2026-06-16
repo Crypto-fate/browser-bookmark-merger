@@ -15,6 +15,12 @@
 - 每条差异 4 个动作：`用 A` / `用 B` / `⊕ 保留两者` / `⊘ 跳过`
 - 一键导出新的 Netscape Bookmark 格式 HTML，分别拖回两个浏览器即可
 
+## 🖼 截图
+
+![screenshot](docs/screenshot.png)
+
+---
+
 ## 🚀 快速开始
 
 ```bash
