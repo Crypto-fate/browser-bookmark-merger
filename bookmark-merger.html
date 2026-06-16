@@ -959,6 +959,8 @@ function batchAuto() {
 // =============================================================
 // export.js — 重建 Netscape Bookmark HTML 并下载
 // =============================================================
+let exportAllFolders; // 闭包变量：buildExportHtml 填充，writeFolder 消费
+
 function buildExportHtml() {
   // 收集所有要写入的 item
   const items = [];
@@ -989,7 +991,7 @@ function buildExportHtml() {
     folderMap.get(p).push(it);
   }
 
-  // 计算所有父路径
+  // 计算所有父路径（包括所有层级的前缀，必然包含中间层文件夹）
   const allFolders = new Set();
   for (const p of folderMap.keys()) {
     const parts = p.split('/');
@@ -997,6 +999,7 @@ function buildExportHtml() {
       allFolders.add(parts.slice(0, i).join('/'));
     }
   }
+  exportAllFolders = allFolders; // 提升为闭包变量，供 writeFolder 使用
 
   // 把根级条目放进 TOP_FOLDER
   const topItems = folderMap.get(TOP_FOLDER) || [];
@@ -1042,19 +1045,18 @@ function writeFolder(folderName, parentPath, depth, buf, folderMap) {
   const indent = '    '.repeat(depth + 1);
   buf.push(`${indent}<DT><H3>${escapeHtml(folderName)}</H3>`);
   buf.push(`${indent}<DL><p>`);
-  // 自己的条目
+  // 自己的条目：folderMap 的 key 是精确路径
   const items = folderMap.get(fullPath) || [];
   for (const it of items) {
     buf.push(formatItem(it, (depth + 2) * 4));
   }
-  // 子文件夹
+  // 子文件夹：从 exportAllFolders 推导（包含所有层级前缀，必然有中间层）
   const subNames = new Set();
-  for (const p of folderMap.keys()) {
-    if (p === fullPath) continue;
-    if (p.startsWith(fullPath + '/')) {
-      const rest = p.slice(fullPath.length + 1);
-      subNames.add(rest.split('/')[0]);
-    }
+  const prefix = fullPath + '/';
+  for (const p of exportAllFolders) {
+    if (p === fullPath || !p.startsWith(prefix)) continue;
+    const rest = p.slice(prefix.length);
+    subNames.add(rest.split('/')[0]);
   }
   for (const sub of [...subNames].sort((a, b) => a.localeCompare(b, 'zh'))) {
     writeFolder(sub, fullPath, depth + 1, buf, folderMap);
